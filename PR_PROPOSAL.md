@@ -1,8 +1,8 @@
 # Proposal — fix: Huawei forced charge never starts or stops on a zero-config install
 
-> Local proposal only. No fork was created, no PR was opened, no live Home
-> Assistant was touched, and no device was ever commanded. All verification is
-> against the mock-based unit suite.
+> Local proposal only. No fork was created and no PR was opened. Regression
+> tests use mocks. The separate local installation has not had a live forced
+> charge test; hardware and timing behavior still require verification.
 
 ## Summary
 
@@ -63,8 +63,12 @@ narrow, verifiable defect.
     passed down" caveat no longer holds).
 * **`coordinator/battery_adapters/force_charge.py`**
   * Drop `"duration"` from the `forcible_charge_soc` call; the SOC target ends
-    the charge. `ChargeCommand.duration_minutes` remains the scheduler's safety
-    timeout; SEM stops the charge through the normal decision path.
+    the charge. SEM normally stops at the plan window end, but the SOC-based
+    service has no independent duration timeout; if the controller fails,
+    charging can continue until the device reaches its SOC target.
+  * Wait for the start and stop service handlers (`blocking=True`) so failures
+    can be observed. On a failed stop during return to normal, retain the
+    in-flight state and retry instead of incorrectly reporting success.
   * The empty-`inverter_device_id` branch of `stop_forced_charge` stays and
     still returns **IDLE and silent** (#1005): a battery with no service
     target can never be charging, so there is nothing to stop — a permanent,

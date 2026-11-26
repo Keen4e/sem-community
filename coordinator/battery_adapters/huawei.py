@@ -12,7 +12,7 @@ Brand quirks:
   ``number.batteries_maximale_entladeleistung``)
 - The ``forcible_charge_soc`` service takes device_id + target_soc + power
   ONLY (no duration), and targets the BATTERY device — which this adapter
-  autodetects and hands to the charge adapter (#1432).
+  autodetects and hands to the charge adapter.
 """
 from __future__ import annotations
 
@@ -446,7 +446,7 @@ class HuaweiBatteryAdapter(BatteryControlAdapter):
         # inverter device.
         if not self._inverter_device_id:
             self._inverter_device_id = self._autodetect_battery_device() or ""
-        # (#1432) The forced-charge adapter reads the device id from ITS OWN
+        # The forced-charge adapter reads the device id from ITS OWN
         # config. Nothing ever writes ``inverter_device_id`` into the config on
         # a zero-config install, so this object must hand the AUTODETECTED
         # battery device down. Without it ``start_forced_charge`` answers
@@ -813,10 +813,14 @@ class HuaweiBatteryAdapter(BatteryControlAdapter):
         # Honest-retry: on failure leave the flag + intent so the next cycle
         # re-issues instead of falsely reporting NORMAL.
         if self._forcible_charging:
+            from .force_charge import ChargeCommandStatus
             try:
-                await self._stop_forced_charge()
+                status = await self._stop_forced_charge()
             except Exception as e:  # noqa: BLE001
                 self._last_error = f"stop_forced_charge failed: {e}"
+                return
+            if status.status is ChargeCommandStatus.FAILED:
+                self._last_error = f"stop_forced_charge failed: {status.message}"
                 return
             self._forcible_charging = False
             self._last_intent = BatteryIntent.NORMAL

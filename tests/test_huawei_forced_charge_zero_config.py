@@ -94,10 +94,12 @@ class TestForcibleChargeSocSchema:
             ChargeCommand(target_soc=80.0, max_power_w=3000, duration_minutes=240))
 
         assert status.status is ChargeCommandStatus.CHARGING
+        assert hass.services.async_call.await_args.kwargs.get("blocking") is True
         hass.services.async_call.assert_awaited_once_with(
             "huawei_solar",
             "forcible_charge_soc",
             {"device_id": "dev1", "target_soc": 80, "power": 3000},
+            blocking=True,
         )
 
     @pytest.mark.asyncio
@@ -165,6 +167,17 @@ class TestZeroConfigDeviceIdPropagation:
         assert adapter.last_intent.value == "force_charge"
 
     @pytest.mark.asyncio
+    async def test_failed_stop_from_normal_keeps_retry_state(self):
+        hass = _hass()
+        with patch.object(HuaweiBatteryAdapter, '_autodetect_battery_device', return_value=_BATTERY_DEVICE_ID):
+            adapter = HuaweiBatteryAdapter(hass, {})
+        adapter._forcible_charging = True
+        hass.services.async_call.side_effect = RuntimeError('stop failed')
+        await adapter.command_normal()
+        assert adapter._forcible_charging is True
+        assert 'stop_forced_charge failed' in (adapter._last_error or '')
+
+    @pytest.mark.asyncio
     async def test_zero_config_stop_force_charge_actually_stops(self):
         """The stop path: a charge SEM started must be stoppable. Before the
         fix the charge adapter saw no device id and sent nothing."""
@@ -183,6 +196,7 @@ class TestZeroConfigDeviceIdPropagation:
         stop = next(c for c in hass.services.async_call.await_args_list
                     if (c.args[0], c.args[1]) == _STOP)
         assert stop.args[2] == {"device_id": _BATTERY_DEVICE_ID}
+        assert stop.kwargs.get("blocking") is True
 
 
 # ── Fail-closed: no device id is still a real install, not a crash ─────────

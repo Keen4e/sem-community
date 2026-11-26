@@ -314,9 +314,9 @@ class HuaweiChargeAdapter(BatteryChargeAdapter):
     *time-based* ``huawei_solar.forcible_charge`` service, NOT to
     ``forcible_charge_soc``. Passing it here is rejected by the service schema
     (``extra keys not allowed @ data['duration']``) so the call raises and the
-    charge never goes out. ``ChargeCommand.duration_minutes`` remains the
-    scheduler's safety timeout; SEM stops the charge itself via the decision
-    (target reached / window end), the way every other brand is stopped.
+    charge never goes out. The service itself does not enforce a duration.
+    SEM requests stop when the planned window ends; a controller outage can
+    leave charging active until the hardware SOC target is reached.
     """
 
     async def start_forced_charge(self, command: ChargeCommand) -> ChargeStatus:
@@ -337,6 +337,7 @@ class HuaweiChargeAdapter(BatteryChargeAdapter):
                     "target_soc": int(command.target_soc),
                     "power": int(command.max_power_w),
                 },
+                blocking=True,
             )
             self._active = True
             self._target_soc = command.target_soc
@@ -375,7 +376,7 @@ class HuaweiChargeAdapter(BatteryChargeAdapter):
         here was retried every cycle for the life of the install and left
         "stop_forced_charge failed" standing in diagnostics as the last word.
 
-        (#1432) ``HuaweiBatteryAdapter`` now hands this adapter the
+        ``HuaweiBatteryAdapter`` now hands this adapter the
         AUTODETECTED battery device id (it used to build this object from the
         raw config, which carries no id on a zero-config install — so both
         this stop and ``start_forced_charge`` above answered a permanent gap).
@@ -398,6 +399,7 @@ class HuaweiChargeAdapter(BatteryChargeAdapter):
                 "huawei_solar",
                 "stop_forcible_charge",
                 {"device_id": device_id},
+                blocking=True,
             )
             self._active = False
             self._target_soc = 0.0

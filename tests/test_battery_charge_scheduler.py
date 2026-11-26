@@ -163,6 +163,7 @@ class TestHuaweiAdapter:
             "huawei_solar",
             "forcible_charge_soc",
             {"device_id": "abc123", "target_soc": 80, "power": 3000},
+            blocking=True,
         )
 
     @pytest.mark.asyncio
@@ -199,6 +200,7 @@ class TestHuaweiAdapter:
             "huawei_solar",
             "stop_forcible_charge",
             {"device_id": "abc123"},
+            blocking=True,
         )
 
     @pytest.mark.asyncio
