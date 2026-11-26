@@ -155,10 +155,14 @@ class TestHuaweiAdapter:
 
         assert status.status == ChargeCommandStatus.CHARGING
         assert adapter.is_active
+        # ``forcible_charge_soc`` accepts device_id + target_soc + power ONLY
+        # (its voluptuous schema forbids extra keys). ``duration`` belongs to
+        # the time-based ``forcible_charge`` service, not this one — passing it
+        # here made the call raise and the charge never went out.
         mock_hass.services.async_call.assert_called_once_with(
             "huawei_solar",
             "forcible_charge_soc",
-            {"device_id": "abc123", "target_soc": 80, "power": 3000, "duration": 240},
+            {"device_id": "abc123", "target_soc": 80, "power": 3000},
         )
 
     @pytest.mark.asyncio

@@ -10,7 +10,9 @@ Brand quirks:
 - LUNA2000 supports power-based forced charge (not just SOC ramp)
 - Discharge limit entity is brand-specific (typically
   ``number.batteries_maximale_entladeleistung``)
-- Force-charge service requires target_soc + power + duration
+- The ``forcible_charge_soc`` service takes device_id + target_soc + power
+  ONLY (no duration), and targets the BATTERY device — which this adapter
+  autodetects and hands to the charge adapter (#1432).
 """
 from __future__ import annotations
 
@@ -418,7 +420,9 @@ class HuaweiBatteryAdapter(BatteryControlAdapter):
         # can be deleted later without breaking the structural
         # plan.
         from .force_charge import HuaweiChargeAdapter
-        self._charge_adapter = HuaweiChargeAdapter(hass, config)
+        # NOTE: ``HuaweiChargeAdapter`` is built at the END of __init__, after
+        # the battery device id is resolved below — it must be handed the
+        # AUTODETECTED id, not the raw config (see the comment there).
         # Config keys for discharge limit
         self._discharge_control_entity = config.get(
             "battery_discharge_control_entity", "",
@@ -442,6 +446,16 @@ class HuaweiBatteryAdapter(BatteryControlAdapter):
         # inverter device.
         if not self._inverter_device_id:
             self._inverter_device_id = self._autodetect_battery_device() or ""
+        # (#1432) The forced-charge adapter reads the device id from ITS OWN
+        # config. Nothing ever writes ``inverter_device_id`` into the config on
+        # a zero-config install, so this object must hand the AUTODETECTED
+        # battery device down. Without it ``start_forced_charge`` answers
+        # FAILED ("No inverter_device_id configured") and the stop answers
+        # nothing-to-stop — every cycle, forever — while the discharge path
+        # (which reads ``self._inverter_device_id`` directly) works fine. A
+        # COPY is handed over so the caller's shared config is never mutated.
+        self._charge_adapter = HuaweiChargeAdapter(
+            hass, {**config, "inverter_device_id": self._inverter_device_id})
         # Target SOC (reserve floor) for the in-flight forced discharge.
         self._fd_floor_soc = 0.0
         # Whether a forcible discharge is currently active. The LUNA2000

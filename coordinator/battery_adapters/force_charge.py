@@ -302,10 +302,21 @@ class BatteryChargeAdapter(ABC):
 class HuaweiChargeAdapter(BatteryChargeAdapter):
     """Huawei SUN2000 + LUNA2000 forced charge via huawei_solar integration.
 
-    Uses the `huawei_solar.forcible_charge_soc` service which sets:
-    - Target SOC
-    - Charge power (limited by AC coupling, typically 2.5-5 kW)
-    - Duration (max 1440 min)
+    Uses the `huawei_solar.forcible_charge_soc` service, which takes EXACTLY
+    three fields (its voluptuous schema forbids extra keys):
+
+    - ``device_id``  — the battery device (the combined
+      ``connected_energy_storage`` device, or a per-battery one)
+    - ``target_soc`` — the SOC the charge runs to; THIS is what ends the charge
+    - ``power``      — charge power (limited by AC coupling, typically 2.5-5 kW)
+
+    There is deliberately NO ``duration``: that field belongs to the
+    *time-based* ``huawei_solar.forcible_charge`` service, NOT to
+    ``forcible_charge_soc``. Passing it here is rejected by the service schema
+    (``extra keys not allowed @ data['duration']``) so the call raises and the
+    charge never goes out. ``ChargeCommand.duration_minutes`` remains the
+    scheduler's safety timeout; SEM stops the charge itself via the decision
+    (target reached / window end), the way every other brand is stopped.
     """
 
     async def start_forced_charge(self, command: ChargeCommand) -> ChargeStatus:
@@ -325,16 +336,14 @@ class HuaweiChargeAdapter(BatteryChargeAdapter):
                     "device_id": device_id,
                     "target_soc": int(command.target_soc),
                     "power": int(command.max_power_w),
-                    "duration": command.duration_minutes,
                 },
             )
             self._active = True
             self._target_soc = command.target_soc
             _LOGGER.info(
-                "Huawei forced charge started: target=%d%%, power=%dW, duration=%dmin",
+                "Huawei forced charge started: target=%d%%, power=%dW",
                 command.target_soc,
                 command.max_power_w,
-                command.duration_minutes,
             )
             return ChargeStatus(
                 status=ChargeCommandStatus.CHARGING,
@@ -366,14 +375,16 @@ class HuaweiChargeAdapter(BatteryChargeAdapter):
         here was retried every cycle for the life of the install and left
         "stop_forced_charge failed" standing in diagnostics as the last word.
 
-        Read the review note on the START side before touching this: nothing
-        in production ever writes ``inverter_device_id`` into the config this
-        object holds — ``HuaweiBatteryAdapter`` autodetects it into its OWN
-        ``_inverter_device_id`` and does not pass it down — so on Huawei this
-        branch is the only branch, and ``start_forced_charge`` above answers
-        the same permanent gap with FAILED. That is this very class on the
-        paired command, and closing it would switch grid charging ON for
-        every Huawei install at once, so it needs a decision, not a sweep.
+        (#1432) ``HuaweiBatteryAdapter`` now hands this adapter the
+        AUTODETECTED battery device id (it used to build this object from the
+        raw config, which carries no id on a zero-config install — so both
+        this stop and ``start_forced_charge`` above answered a permanent gap).
+        With the id propagated this branch runs and the stop reaches the
+        hardware. The empty-id branch below stays for the genuine case: a
+        Huawei install with no battery device the services can target
+        (number-entity only, or an unreadable registry) — where a start is
+        impossible, so nothing can be charging and a stop is DONE, not
+        FAILED (#1005).
         """
         device_id = self.config.get("inverter_device_id", "")
         if not device_id:
